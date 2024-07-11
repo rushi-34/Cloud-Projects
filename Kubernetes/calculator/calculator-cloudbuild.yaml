@@ -1,0 +1,33 @@
+steps:
+  - name: "gcr.io/cloud-builders/docker"
+    id: BUILD-IMAGE
+    args:
+      - "build"
+      - "-t"
+      - "us-central1-docker.pkg.dev/kubernetes-417923/c2-calculator/calculator-img"
+      - "./"
+
+  - name: "gcr.io/cloud-builders/docker"
+    id: PUSH-IMAGE
+    args:
+      - "push"
+      - "us-central1-docker.pkg.dev/kubernetes-417923/c2-calculator/calculator-img"
+
+  - name: "gcr.io/cloud-builders/kubectl"
+    args:
+      - "apply"
+      - "-f"
+      - "pvc.yaml"
+    env:
+      - "CLOUDSDK_COMPUTE_ZONE=us-central1-c"
+      - "CLOUDSDK_CONTAINER_CLUSTER=k8s-cluster"
+
+  - name: "gcr.io/cloud-builders/kubectl"
+    id: DEPLOY-KUBERNETES
+    env:
+      - "CLOUDSDK_CONTAINER_CLUSTER=k8s-cluster"
+      - "CLOUDSDK_COMPUTE_ZONE=us-central1-c"
+    args:
+      - "apply"
+      - "-f"
+      - "./calculator-deployment.yaml"

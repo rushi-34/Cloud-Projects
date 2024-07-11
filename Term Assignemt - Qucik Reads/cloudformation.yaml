@@ -1,0 +1,346 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Resources:
+
+# S3 buckets
+
+  S3Bucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: rushi-qr
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+
+  S3BucketPolicy:
+    Type: 'AWS::S3::BucketPolicy'
+    Properties:
+      Bucket: !Ref S3Bucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Action:
+              - "s3:GetObject"
+            Effect: Allow
+            Resource: !Join
+              - ""
+              - - "arn:aws:s3:::"
+                - !Ref S3Bucket
+                - /*
+            Principal: "*"
+
+# DynamoDB
+
+  UserDb:
+    Type: 'AWS::DynamoDB::Table'
+    Properties:
+      TableName: user
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+
+  ReportsDb:
+    Type: 'AWS::DynamoDB::Table'
+    Properties:
+      TableName: reports
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      StreamSpecification:
+        StreamViewType: "NEW_IMAGE"
+  
+
+  SendEmailFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: SendEmailFunction
+      Runtime: nodejs16.x
+      Handler: index.handler
+      Role: arn:aws:iam::851725522045:role/LabRole
+      Code:
+        S3Bucket: packagedeploy34
+        S3Key: SendEmailFunction.zip
+
+  ReportsDbStreamMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: 1
+      EventSourceArn: !GetAtt ReportsDb.StreamArn
+      FunctionName: !Ref SendEmailFunction
+      StartingPosition: "LATEST"
+
+# SNS 
+
+  ReportNotifications:
+    Type: 'AWS::SNS::Topic'
+    Properties:
+      DisplayName: ReportNotifications
+      TopicName: ReportNotifications
+
+# Secrets Manager
+
+  Secrets:
+    Type: 'AWS::SecretsManager::Secret'
+    DependsOn:
+      - ReportNotifications
+      - ReportsDb
+      - UserDb
+      - S3Bucket
+    Properties:
+      Name: MySecretM
+      Description: Secret for storing secrets
+      SecretString: '{"TABLENAME": "user", "TOPIC_ARN": "arn:aws:sns:us-east-1:851725522045:ReportNotifications", "BUCKET": "rushi-qr", "TableForReport": "reports"}'
+
+# API Gateway 
+
+  APIGateway:
+    Type: AWS::ApiGatewayV2::Api
+    DependsOn:
+      - ReportsDb
+      - UserDb
+      - S3Bucket
+    Properties:
+      Name: QuickReadsAPI
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowMethods:
+          - "GET"
+          - "POST"
+          - "PUT"
+          - "DELETE"
+        AllowOrigins:
+          - "*"
+        AllowHeaders:
+          - "*"
+
+# Signup Lambda
+
+  SignupFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: SignupFunction
+      Runtime: nodejs16.x
+      Handler: index.handler
+      Role: arn:aws:iam::851725522045:role/LabRole
+      Code:
+        S3Bucket: packagedeploy34
+        S3Key: SignupFunction.zip
+
+  SignupFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt SignupFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+
+  SignupFunctionIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    DependsOn: 
+      - SignupFunction
+    Properties:
+      ApiId: !Ref APIGateway
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SignupFunction.Arn}/invocations"
+      PayloadFormatVersion: "2.0"
+
+  SignupFunctionRoute:
+    Type: AWS::ApiGatewayV2::Route
+    DependsOn:
+    - SignupFunctionIntegration
+    Properties:
+      ApiId: !Ref APIGateway
+      RouteKey: "POST /adduser"
+      Target: !Sub "integrations/${SignupFunctionIntegration}"
+
+# Login Lambda
+  LoginFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: LoginFunction
+      Runtime: nodejs16.x
+      Handler: index.handler
+      Role: arn:aws:iam::851725522045:role/LabRole
+      Code:
+        S3Bucket: packagedeploy34
+        S3Key: LoginFunction.zip
+
+  LoginFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt LoginFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+
+  LoginFunctionIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    DependsOn: 
+      - LoginFunction
+    Properties:
+      ApiId: !Ref APIGateway
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LoginFunction.Arn}/invocations"
+      PayloadFormatVersion: "2.0"
+
+  LoginFunctionRoute:
+    Type: AWS::ApiGatewayV2::Route
+    DependsOn:
+    - LoginFunctionIntegration
+    Properties:
+      ApiId: !Ref APIGateway
+      RouteKey: "POST /login"
+      Target: !Sub "integrations/${LoginFunctionIntegration}"
+
+# SubmitReport Lambda
+
+  SubmitReportFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: SubmitReportFunction
+      Runtime: nodejs16.x
+      Handler: index.handler
+      Role: arn:aws:iam::851725522045:role/LabRole
+      Code:
+        S3Bucket: packagedeploy34
+        S3Key: SubmitReportFunction.zip
+
+  SubmitReportFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt SubmitReportFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+
+  SubmitReportFunctionIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    DependsOn: 
+      - SubmitReportFunction
+    Properties:
+      ApiId: !Ref APIGateway
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SubmitReportFunction.Arn}/invocations"
+      PayloadFormatVersion: "2.0"
+
+  SubmitReportFunctionRoute:
+    Type: AWS::ApiGatewayV2::Route
+    DependsOn:
+    - SubmitReportFunctionIntegration
+    Properties:
+      ApiId: !Ref APIGateway
+      RouteKey: "POST /addreport"
+      Target: !Sub "integrations/${SubmitReportFunctionIntegration}"
+
+# Get Reports Function
+
+  GetReportsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: GetReportsFunction
+      Runtime: nodejs16.x
+      Handler: index.handler
+      Role: arn:aws:iam::851725522045:role/LabRole
+      Code:
+        S3Bucket: packagedeploy34
+        S3Key: GetReportsFunction.zip
+
+  GetReportsFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt GetReportsFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+
+  GetReportsFunctionIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    DependsOn: 
+      - GetReportsFunction
+    Properties:
+      ApiId: !Ref APIGateway
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetReportsFunction.Arn}/invocations"
+      PayloadFormatVersion: "2.0"
+
+  GetReportsFunctionRoute:
+    Type: AWS::ApiGatewayV2::Route
+    DependsOn:
+      - GetReportsFunctionIntegration
+    Properties:
+      ApiId: !Ref APIGateway
+      RouteKey: "GET /getreports"
+      Target: !Sub "integrations/${GetReportsFunctionIntegration}"
+
+
+
+# Deploy APIs to prod stage
+
+  ProdStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref APIGateway
+      StageName: prod
+      AutoDeploy: true
+  
+# EBS deployment
+
+  EBSApplication:
+    Type: AWS::ElasticBeanstalk::Application
+    Properties:
+      Description: Deploy react on elastic beanstalk
+
+  EBSApplicationVersion:
+    Type: AWS::ElasticBeanstalk::ApplicationVersion
+    Properties:
+      ApplicationName: !Ref EBSApplication
+      Description: Version 1.0
+      SourceBundle:
+        S3Bucket: packagedeploy34
+        S3Key: Upload.zip
+
+  EBSConfigurationTemplate:
+    Type: AWS::ElasticBeanstalk::ConfigurationTemplate
+    Properties:
+      ApplicationName: !Ref EBSApplication
+      Description: Configuration Template for My React Application
+      OptionSettings:
+        - Namespace: aws:elasticbeanstalk:environment
+          OptionName: EnvironmentType
+          Value: SingleInstance
+        - Namespace: aws:elasticbeanstalk:environment
+          OptionName: ServiceRole
+          Value: arn:aws:iam::851725522045:role/LabRole
+        - Namespace: "aws:autoscaling:launchconfiguration"
+          OptionName: "IamInstanceProfile"
+          Value: "LabInstanceProfile"
+      SolutionStackName: 64bit Amazon Linux 2023 v6.1.2 running Node.js 18
+
+  EBSEnvironment:
+    Type: AWS::ElasticBeanstalk::Environment
+    DependsOn:
+      - Secrets
+      - ReportNotifications
+      - UserDb
+      - ReportsDb
+      - S3Bucket
+      - SignupFunction
+      - LoginFunction
+      - SendEmailFunction
+      - GetReportsFunction
+      - SubmitReportFunction
+    Properties:
+      ApplicationName: !Ref EBSApplication
+      Description: MyReactEnv
+      EnvironmentName: quickreadsdeploy
+      TemplateName: !Ref EBSConfigurationTemplate
+      VersionLabel: !Ref EBSApplicationVersion

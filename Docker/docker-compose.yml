@@ -1,0 +1,16 @@
+services:
+  nodejs_server_1:
+    image: rushi34/csci-5409-a1-c1:latest
+    build: ./app-1
+    ports:
+      - 6000:6000
+    environment:
+      SERVER_HOST: http://nodejs_server_2:9000
+
+  nodejs_server_2:
+    build: ./app-2
+    image: rushi34/csci-5409-a1-c2:latest
+    ports:
+      - 9000:9000
+    volumes:
+      - .:/app/files

@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: my-calculator-pod
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: calculator-c
+
+  template:
+    metadata:
+      labels:
+        app: calculator-c
+
+    spec:
+      containers:
+        - name: calculator
+          image: "us-central1-docker.pkg.dev/kubernetes-417923/c2-calculator/calculator-img"
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 9000
+          volumeMounts:
+            - name: storage-volume
+              mountPath: /rushi_PV_dir
+
+      volumes:
+        - name: storage-volume
+          persistentVolumeClaim:
+            claimName: pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: calculator-service
+spec:
+  selector:
+    app: calculator-c
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 9000

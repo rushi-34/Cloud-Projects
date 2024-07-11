@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: my-gatekeeper-pod
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gatekeeper-c
+
+  template:
+    metadata:
+      labels:
+        app: gatekeeper-c
+
+    spec:
+      containers:
+        - name: gatekeeper
+          image: "us-central1-docker.pkg.dev/kubernetes-417923/c1-gatekeeper/gatekeeper-img"
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 6000
+          volumeMounts:
+            - name: storage-volume
+              mountPath: /rushi_PV_dir
+
+      volumes:
+        - name: storage-volume
+          persistentVolumeClaim:
+            claimName: pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gatekeeper-service
+spec:
+  selector:
+    app: gatekeeper-c
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 6000
+  type: LoadBalancer
